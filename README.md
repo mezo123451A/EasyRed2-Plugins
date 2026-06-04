@@ -2,8 +2,6 @@
 
 BepInEx IL2CPP plugins for **Easy Red 2**.
 
-This repository contains source code and prebuilt DLLs. There is no GitHub Release package; use the DLLs in `dist/` or build from source.
-
 ## Plugins
 
 | Plugin | Description |

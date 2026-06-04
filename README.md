@@ -8,9 +8,9 @@ BepInEx IL2CPP plugins for **Easy Red 2**.
 | --- | --- |
 | `EasyRed2AmmoHud` | Adds a compact FPS-style infantry weapon ammo display with weapon name, loaded ammo, and matching reserve ammo only. |
 | `EasyRed2HealthTweaks` | Adds a BF3-style player HP bar, disables bleeding, blocks the downed state, regenerates living soldiers back to 100 HP, and adds BF4-style look-at-body charged syringe revives on `E` for teammates only plus revive markers. |
-| `EasyRed2InfiniteStamina` | Keeps stamina full, prevents out-of-stamina blocking, restores normal mouse look speed while jumping, and allows sprinting while reloading with `Shift + W`. |
+| `EasyRed2InfiniteStamina` | Keeps stamina full, prevents out-of-stamina blocking, restores normal mouse look speed while jumping, and allows sprinting while reloading. |
 | `EasyRed2ReloadSwitch` | Lets the player switch weapons while reloading by interrupting the reload when a weapon-switch input is pressed. |
-| `EasyRed2Spotting` | Adds BF3/BF4-style quick spotting on `Q` using the game's native spotting behavior without extra plugin feedback text. |
+| `EasyRed2Spotting` | Adds BF3/BF4-style quick spotting on `Q` using the game's native spotting behavior. |
 
 ## Requirements
 

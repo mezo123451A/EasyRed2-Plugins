@@ -35,6 +35,7 @@ public sealed class HealthTweaksBehaviour : MonoBehaviour
     private GUIStyle? _markerStyle;
     private float _nextScan;
     private float _nextAiScan;
+    private float _nextVehicleUiSweep;
 
     public HealthTweaksBehaviour(IntPtr ptr) : base(ptr)
     {
@@ -43,6 +44,7 @@ public sealed class HealthTweaksBehaviour : MonoBehaviour
     private void Update()
     {
         HealthTweaks.HideBleedingUi();
+        HealthTweaks.DisableSimplifiedVehicleDamageUi();
 
         var player = HealthTweaks.PlayerSoldier;
         if (player != null && !HealthTweaks.IsDead(player))
@@ -64,6 +66,12 @@ public sealed class HealthTweaksBehaviour : MonoBehaviour
         {
             _nextAiScan = Time.time + 1f;
             HealthTweaks.UpdateAiRevives();
+        }
+
+        if (Time.time >= _nextVehicleUiSweep)
+        {
+            _nextVehicleUiSweep = Time.time + 1f;
+            HealthTweaks.HideVehicleDamageDetails();
         }
     }
 
@@ -1068,6 +1076,45 @@ internal static class HealthTweaks
         }
     }
 
+    internal static void DisableSimplifiedVehicleDamageUi()
+    {
+        try
+        {
+            var difficulty = MatchData.Difficulty;
+            if (difficulty != null)
+            {
+                difficulty.simplifiedVehicleDamageUi = false;
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    internal static void HideVehicleDamageDetails()
+    {
+        try
+        {
+            var details = UnityEngine.Object.FindObjectsOfType<VehicleDamageDetails>(true);
+            if (details == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < details.Length; i++)
+            {
+                var detail = details[i];
+                if (detail?.gameObject != null && detail.gameObject.activeSelf)
+                {
+                    detail.gameObject.SetActive(false);
+                }
+            }
+        }
+        catch
+        {
+        }
+    }
+
     internal static void MarkNotIncapacitated(Creature creature)
     {
         ClearCombatStates(creature);
@@ -1482,5 +1529,25 @@ internal static class SoldierUseSyringePatch
         }
 
         HealthTweaks.HealToFull(injuredCreature);
+    }
+}
+
+[HarmonyPatch(typeof(VehicleDamageDetails), nameof(VehicleDamageDetails.DisplayDamageData), new[] { typeof(Vehicle), typeof(string), typeof(bool) })]
+internal static class VehicleDamageDetailsDisplayDamageDataPatch
+{
+    private static bool Prefix()
+    {
+        HealthTweaks.DisableSimplifiedVehicleDamageUi();
+        return false;
+    }
+}
+
+[HarmonyPatch(typeof(VehicleDamageDetails), nameof(VehicleDamageDetails.DisplayNonDamageData), new[] { typeof(Vehicle), typeof(string) })]
+internal static class VehicleDamageDetailsDisplayNonDamageDataPatch
+{
+    private static bool Prefix()
+    {
+        HealthTweaks.DisableSimplifiedVehicleDamageUi();
+        return false;
     }
 }

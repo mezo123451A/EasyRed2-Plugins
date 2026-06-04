@@ -151,58 +151,80 @@ public sealed class AmmoHudBehaviour : MonoBehaviour
             string magazineId = "";
             string ammoId = "";
             VirtualMagazineItem? installedMagazine = null;
+            bool isMagazineWeapon = false;
+            bool hasMagazineSocket = false;
+            bool canLoadLooseAmmo = false;
 
             if (held.TryCast<VirtualMagazineGunWeapon>() is { } magWeapon)
             {
+                isMagazineWeapon = true;
                 installedMagazine = magWeapon.installedMagazine;
                 magazineId = installedMagazine?.item_id ?? "";
             }
 
-            if (gun != null && !string.IsNullOrWhiteSpace(gun.compatibleAmmo))
+            if (gun != null)
             {
-                ammoId = gun.compatibleAmmo;
+                ammoId = gun.compatibleAmmo ?? "";
+                hasMagazineSocket = !string.IsNullOrWhiteSpace(gun.magazineSocket);
+                canLoadLooseAmmo = gun.allowTopLoadIntoInstalledMagazine || !hasMagazineSocket;
             }
 
-            if (string.IsNullOrWhiteSpace(magazineId) && gun != null && !string.IsNullOrWhiteSpace(gun.magazineSocket))
+            if (string.IsNullOrWhiteSpace(magazineId) && gun != null && hasMagazineSocket)
             {
                 var bestMagazine = inventory.FindBestMagazine(gun.magazineSocket, true);
                 magazineId = bestMagazine?.item_id ?? "";
             }
 
-            int reserve = 0;
+            int reserve = CountMatchingMagazines(inventory, magazineId, installedMagazine);
 
-            var magazines = inventory.GetItemsOfType<VirtualMagazineItem>();
-            if (magazines != null)
+            if (canLoadLooseAmmo && (!isMagazineWeapon || gun?.allowTopLoadIntoInstalledMagazine == true))
             {
-                for (int i = 0; i < magazines.Length; i++)
-                {
-                    var magazine = magazines[i];
-                    if (magazine == null)
-                    {
-                        continue;
-                    }
-
-                    bool sameInstalled = installedMagazine != null && magazine.Pointer == installedMagazine.Pointer;
-                    if (sameInstalled)
-                    {
-                        continue;
-                    }
-
-                    bool matchesMagazine = !string.IsNullOrWhiteSpace(magazineId) && magazine.item_id == magazineId;
-                    if (matchesMagazine)
-                    {
-                        reserve += Math.Max(0, magazine.GetAmmoCount());
-                    }
-                }
+                reserve += CountLooseAmmo(inventory, ammoId);
             }
 
-            reserve += CountLooseAmmo(inventory, ammoId);
             return reserve;
         }
         catch
         {
             return 0;
         }
+    }
+
+    private static int CountMatchingMagazines(InventoryManager inventory, string magazineId, VirtualMagazineItem? installedMagazine)
+    {
+        if (string.IsNullOrWhiteSpace(magazineId))
+        {
+            return 0;
+        }
+
+        int reserve = 0;
+        var magazines = inventory.GetItemsOfType<VirtualMagazineItem>();
+        if (magazines == null)
+        {
+            return reserve;
+        }
+
+        for (int i = 0; i < magazines.Length; i++)
+        {
+            var magazine = magazines[i];
+            if (magazine == null)
+            {
+                continue;
+            }
+
+            bool sameInstalled = installedMagazine != null && magazine.Pointer == installedMagazine.Pointer;
+            if (sameInstalled)
+            {
+                continue;
+            }
+
+            if (magazine.item_id == magazineId)
+            {
+                reserve += Math.Max(0, magazine.GetAmmoCount());
+            }
+        }
+
+        return reserve;
     }
 
     private static int CountLooseAmmo(InventoryManager inventory, string ammoId)

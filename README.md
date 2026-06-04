@@ -6,7 +6,7 @@ BepInEx IL2CPP plugins for **Easy Red 2**.
 
 | Plugin | Description |
 | --- | --- |
-| `EasyRed2AmmoHud` | Adds a compact FPS-style weapon ammo display with weapon name, loaded ammo, reserve ammo, and vehicle weapon ammo support. |
+| `EasyRed2AmmoHud` | Adds a compact FPS-style weapon ammo display with weapon name, loaded ammo, reserve ammo. |
 | `EasyRed2InfiniteStamina` | Keeps stamina full, prevents out-of-stamina blocking, restores normal mouse look speed while jumping, and allows sprinting while reloading. |
 
 ## Requirements

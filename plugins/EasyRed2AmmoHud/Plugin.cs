@@ -76,18 +76,17 @@ public sealed class AmmoHudBehaviour : MonoBehaviour
     {
         try
         {
-            string vehicleText = BuildVehicleAmmoText();
             var controller = PlayerController.currentController;
             var soldier = controller?.ControlledCharacter;
             if (soldier == null || !soldier.IsFPSPlayer() || !soldier.HasHeldItem())
             {
-                return vehicleText;
+                return "";
             }
 
             var held = soldier.GetHeldItem_inventory();
             if (held == null)
             {
-                return vehicleText;
+                return "";
             }
 
             var heldObject = soldier.GetHeldItem();
@@ -139,58 +138,6 @@ public sealed class AmmoHudBehaviour : MonoBehaviour
         return cleaned.Trim();
     }
 
-    private static string BuildVehicleAmmoText()
-    {
-        try
-        {
-            var gui = VehicleGUI.instance;
-            var displays = gui?.weaponDataDisplay;
-            if (displays == null || displays.Length == 0)
-            {
-                return "";
-            }
-
-            VehGuiArmamentDisplay? selected = null;
-            VehGuiArmamentDisplay? firstWithAmmo = null;
-
-            for (int i = 0; i < displays.Length; i++)
-            {
-                var display = displays[i];
-                if (display == null)
-                {
-                    continue;
-                }
-
-                if (firstWithAmmo == null && (display.last_ammo_count > 0 || display.last_stored_count > 0))
-                {
-                    firstWithAmmo = display;
-                }
-
-                if (display.selected_icon != null && display.selected_icon.activeSelf)
-                {
-                    selected = display;
-                    break;
-                }
-            }
-
-            var current = selected ?? firstWithAmmo;
-            if (current == null)
-            {
-                return "";
-            }
-
-            int loaded = Math.Max(0, current.last_ammo_count);
-            int stored = Math.Max(0, current.last_stored_count);
-            string label = current.ammo_text != null ? current.ammo_text.text : "";
-            label = string.IsNullOrWhiteSpace(label) ? "VEHICLE" : label.ToUpperInvariant();
-            return $"{label}\n{loaded} / {stored}";
-        }
-        catch
-        {
-            return "";
-        }
-    }
-
     private static int CountReserveAmmo(Soldier soldier, VirtualGunWeapon held, GenericGun? gun)
     {
         try
@@ -220,11 +167,6 @@ public sealed class AmmoHudBehaviour : MonoBehaviour
             {
                 var bestMagazine = inventory.FindBestMagazine(gun.magazineSocket, true);
                 magazineId = bestMagazine?.item_id ?? "";
-            }
-
-            if (string.IsNullOrWhiteSpace(ammoId) && !string.IsNullOrWhiteSpace(held.item_id))
-            {
-                ammoId = held.item_id;
             }
 
             int reserve = 0;

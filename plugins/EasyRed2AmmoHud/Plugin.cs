@@ -1,0 +1,376 @@
+using System;
+using BepInEx;
+using BepInEx.Logging;
+using BepInEx.Unity.IL2CPP;
+using Il2CppInterop.Runtime.Injection;
+using UnityEngine;
+
+namespace EasyRed2AmmoHud;
+
+[BepInPlugin(PluginGuid, PluginName, PluginVersion)]
+public sealed class Plugin : BasePlugin
+{
+    public const string PluginGuid = "tom.easyred2.ammohud";
+    public const string PluginName = "Easy Red 2 Ammo HUD";
+    public const string PluginVersion = "0.1.0";
+
+    internal static ManualLogSource? LogSource { get; private set; }
+
+    public override void Load()
+    {
+        LogSource = Log;
+        ClassInjector.RegisterTypeInIl2Cpp<AmmoHudBehaviour>();
+        AddComponent<AmmoHudBehaviour>();
+        Log.LogInfo($"{PluginName} loaded.");
+    }
+}
+
+public sealed class AmmoHudBehaviour : MonoBehaviour
+{
+    private GUIStyle? _mainStyle;
+    private GUIStyle? _shadowStyle;
+    private string _display = "";
+    private float _nextRefresh;
+
+    public AmmoHudBehaviour(IntPtr ptr) : base(ptr)
+    {
+    }
+
+    private void Update()
+    {
+        if (Time.time < _nextRefresh)
+        {
+            return;
+        }
+
+        _nextRefresh = Time.time + 0.08f;
+        _display = BuildAmmoText();
+        TryUpdateNativeAmmoText(_display);
+    }
+
+    private void OnGUI()
+    {
+        if (string.IsNullOrWhiteSpace(_display))
+        {
+            return;
+        }
+
+        EnsureStyles();
+
+        const float width = 190f;
+        const float height = 48f;
+        float x = Screen.width - width - 34f;
+        float y = Screen.height - height - 42f;
+        var rect = new Rect(x, y, width, height);
+
+        var oldColor = GUI.color;
+        GUI.color = new Color(0.03f, 0.035f, 0.03f, 0.42f);
+        GUI.DrawTexture(new Rect(x - 10f, y - 5f, width + 20f, height + 10f), Texture2D.whiteTexture);
+        GUI.color = oldColor;
+
+        GUI.Label(new Rect(rect.x + 2f, rect.y + 2f, rect.width, rect.height), _display, _shadowStyle);
+        GUI.Label(rect, _display, _mainStyle);
+    }
+
+    private string BuildAmmoText()
+    {
+        try
+        {
+            string vehicleText = BuildVehicleAmmoText();
+            var controller = PlayerController.currentController;
+            var soldier = controller?.ControlledCharacter;
+            if (soldier == null || !soldier.IsFPSPlayer() || !soldier.HasHeldItem())
+            {
+                return vehicleText;
+            }
+
+            var held = soldier.GetHeldItem_inventory();
+            if (held == null)
+            {
+                return vehicleText;
+            }
+
+            var heldObject = soldier.GetHeldItem();
+            var gun = heldObject?.TryCast<GenericGun>();
+            int loaded = gun != null ? Math.Max(0, gun.GetCurrentAmmoCount()) : Math.Max(0, held.chamberedAmmo);
+            int reserve = CountReserveAmmo(soldier, held, gun);
+
+            if (held.TryCast<VirtualMagazineGunWeapon>() is { } magWeapon)
+            {
+                var magazine = magWeapon.installedMagazine;
+                if (gun == null && magazine != null)
+                {
+                    loaded += Math.Max(0, magazine.GetAmmoCount());
+                }
+            }
+
+            string weaponName = CleanWeaponName(held.GetName());
+            return string.IsNullOrWhiteSpace(weaponName)
+                ? $"{loaded} / {reserve}"
+                : $"{weaponName.ToUpperInvariant()}\n{loaded} / {reserve}";
+        }
+        catch (Exception ex)
+        {
+            Plugin.LogSource?.LogDebug($"Ammo refresh failed: {ex.Message}");
+            return "";
+        }
+    }
+
+    private static string CleanWeaponName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "";
+        }
+
+        var lines = name.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        string cleaned = "";
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i].Trim();
+            if (line.IndexOf("magazine installed", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                continue;
+            }
+
+            cleaned = string.IsNullOrWhiteSpace(cleaned) ? line : $"{cleaned} {line}";
+        }
+
+        return cleaned.Trim();
+    }
+
+    private static string BuildVehicleAmmoText()
+    {
+        try
+        {
+            var gui = VehicleGUI.instance;
+            var displays = gui?.weaponDataDisplay;
+            if (displays == null || displays.Length == 0)
+            {
+                return "";
+            }
+
+            VehGuiArmamentDisplay? selected = null;
+            VehGuiArmamentDisplay? firstWithAmmo = null;
+
+            for (int i = 0; i < displays.Length; i++)
+            {
+                var display = displays[i];
+                if (display == null)
+                {
+                    continue;
+                }
+
+                if (firstWithAmmo == null && (display.last_ammo_count > 0 || display.last_stored_count > 0))
+                {
+                    firstWithAmmo = display;
+                }
+
+                if (display.selected_icon != null && display.selected_icon.activeSelf)
+                {
+                    selected = display;
+                    break;
+                }
+            }
+
+            var current = selected ?? firstWithAmmo;
+            if (current == null)
+            {
+                return "";
+            }
+
+            int loaded = Math.Max(0, current.last_ammo_count);
+            int stored = Math.Max(0, current.last_stored_count);
+            string label = current.ammo_text != null ? current.ammo_text.text : "";
+            label = string.IsNullOrWhiteSpace(label) ? "VEHICLE" : label.ToUpperInvariant();
+            return $"{label}\n{loaded} / {stored}";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static int CountReserveAmmo(Soldier soldier, VirtualGunWeapon held, GenericGun? gun)
+    {
+        try
+        {
+            var inventory = soldier.inventory;
+            if (inventory == null)
+            {
+                return 0;
+            }
+
+            string magazineId = "";
+            string ammoId = "";
+            VirtualMagazineItem? installedMagazine = null;
+
+            if (held.TryCast<VirtualMagazineGunWeapon>() is { } magWeapon)
+            {
+                installedMagazine = magWeapon.installedMagazine;
+                magazineId = installedMagazine?.item_id ?? "";
+            }
+
+            if (gun != null && !string.IsNullOrWhiteSpace(gun.compatibleAmmo))
+            {
+                ammoId = gun.compatibleAmmo;
+            }
+
+            if (string.IsNullOrWhiteSpace(magazineId) && gun != null && !string.IsNullOrWhiteSpace(gun.magazineSocket))
+            {
+                var bestMagazine = inventory.FindBestMagazine(gun.magazineSocket, true);
+                magazineId = bestMagazine?.item_id ?? "";
+            }
+
+            if (string.IsNullOrWhiteSpace(ammoId) && !string.IsNullOrWhiteSpace(held.item_id))
+            {
+                ammoId = held.item_id;
+            }
+
+            int reserve = 0;
+
+            var magazines = inventory.GetItemsOfType<VirtualMagazineItem>();
+            if (magazines != null)
+            {
+                for (int i = 0; i < magazines.Length; i++)
+                {
+                    var magazine = magazines[i];
+                    if (magazine == null)
+                    {
+                        continue;
+                    }
+
+                    bool sameInstalled = installedMagazine != null && magazine.Pointer == installedMagazine.Pointer;
+                    if (sameInstalled)
+                    {
+                        continue;
+                    }
+
+                    bool matchesMagazine = !string.IsNullOrWhiteSpace(magazineId) && magazine.item_id == magazineId;
+                    if (matchesMagazine)
+                    {
+                        reserve += Math.Max(0, magazine.GetAmmoCount());
+                    }
+                }
+            }
+
+            reserve += CountLooseAmmo(inventory, ammoId);
+            return reserve;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static int CountLooseAmmo(InventoryManager inventory, string ammoId)
+    {
+        if (string.IsNullOrWhiteSpace(ammoId))
+        {
+            return 0;
+        }
+
+        int reserve = 0;
+
+        try
+        {
+            var ammo = inventory.GetItemsOfType<VirtualAmmo>();
+            if (ammo != null)
+            {
+                for (int i = 0; i < ammo.Length; i++)
+                {
+                    if (ammo[i] != null && ammo[i].item_id == ammoId)
+                    {
+                        reserve += Math.Max(0, ammo[i].GetAmmoCount());
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var shells = inventory.GetItemsOfType<VirtualShellAmmo>();
+            if (shells != null)
+            {
+                for (int i = 0; i < shells.Length; i++)
+                {
+                    if (shells[i] != null && shells[i].item_id == ammoId)
+                    {
+                        reserve += Math.Max(0, shells[i].GetAmmoCount());
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var droppable = inventory.GetItemsOfType<VirtualDroppableAmmo>();
+            if (droppable != null)
+            {
+                for (int i = 0; i < droppable.Length; i++)
+                {
+                    if (droppable[i] != null && droppable[i].item_id == ammoId)
+                    {
+                        reserve += Math.Max(0, droppable[i].GetStackCount());
+                    }
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return reserve;
+    }
+
+    private static void TryUpdateNativeAmmoText(string text)
+    {
+        try
+        {
+            var gui = PlayerGUI.instance;
+            if (gui?.weapon_ammos == null)
+            {
+                return;
+            }
+
+            gui.weapon_ammos.text = text.Replace("\n", "   ");
+            gui.weapon_ammos.color = new Color(0.84f, 0.82f, 0.72f, 0.94f);
+        }
+        catch
+        {
+            // The IMGUI overlay remains active if the built-in HUD text is not available.
+        }
+    }
+
+    private void EnsureStyles()
+    {
+        if (_mainStyle != null && _shadowStyle != null)
+        {
+            return;
+        }
+
+        _mainStyle = new GUIStyle()
+        {
+            alignment = TextAnchor.MiddleRight,
+            fontSize = 24,
+            fontStyle = FontStyle.Bold,
+            richText = false
+        };
+        _mainStyle.normal.textColor = new Color(0.84f, 0.82f, 0.72f, 0.96f);
+
+        _shadowStyle = new GUIStyle()
+        {
+            alignment = _mainStyle.alignment,
+            fontSize = _mainStyle.fontSize,
+            fontStyle = _mainStyle.fontStyle,
+            richText = _mainStyle.richText
+        };
+        _shadowStyle.normal.textColor = new Color(0f, 0f, 0f, 0.75f);
+    }
+}

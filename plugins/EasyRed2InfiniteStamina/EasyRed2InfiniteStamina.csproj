@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>EasyRed2InfiniteStamina</AssemblyName>
+    <RootNamespace>EasyRed2InfiniteStamina</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <EasyRed2GameDir Condition="'$(EasyRed2GameDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Easy Red 2</EasyRed2GameDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony" HintPath="$(EasyRed2GameDir)\BepInEx\core\0Harmony.dll" Private="false" />
+    <Reference Include="BepInEx.Core" HintPath="$(EasyRed2GameDir)\BepInEx\core\BepInEx.Core.dll" Private="false" />
+    <Reference Include="BepInEx.Unity.IL2CPP" HintPath="$(EasyRed2GameDir)\BepInEx\core\BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="Il2CppInterop.Runtime" HintPath="$(EasyRed2GameDir)\BepInEx\core\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="Assembly-CSharp" HintPath="$(EasyRed2GameDir)\BepInEx\interop\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(EasyRed2GameDir)\BepInEx\interop\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(EasyRed2GameDir)\BepInEx\interop\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.InputLegacyModule" HintPath="$(EasyRed2GameDir)\BepInEx\interop\UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="Il2Cppmscorlib" HintPath="$(EasyRed2GameDir)\BepInEx\interop\Il2Cppmscorlib.dll" Private="false" />
+  </ItemGroup>
+</Project>

@@ -2,6 +2,7 @@ using System;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
+using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 using UnityEngine;
 
@@ -21,16 +22,23 @@ public sealed class Plugin : BasePlugin
         LogSource = Log;
         ClassInjector.RegisterTypeInIl2Cpp<SpottingBehaviour>();
         AddComponent<SpottingBehaviour>();
+        new Harmony(PluginGuid).PatchAll();
         Log.LogInfo($"{PluginName} loaded.");
     }
 }
 
 public sealed class SpottingBehaviour : MonoBehaviour
 {
-    private const float HoldRepeatSeconds = 0.22f;
-    private const float SpotRadius = 80f;
+    private const float TapSpotMaxSeconds = 0.28f;
+    private const float CrosshairSpotRadius = 20f;
+    private const float ViewSpotRadius = 85f;
+    private const float MaxViewSpotDistance = 160f;
+    private const float ViewportMargin = 0.04f;
 
-    private float _nextHeldSpot;
+    private bool _spotKeyWasHeld;
+    private bool _spotTapCandidate;
+    private float _spotKeyDownTime;
+    private static bool _allowNativeSpot;
 
     public SpottingBehaviour(IntPtr ptr) : base(ptr)
     {
@@ -38,18 +46,27 @@ public sealed class SpottingBehaviour : MonoBehaviour
 
     private void Update()
     {
-        bool pressed = Input.GetKeyDown(KeyCode.Q);
-        bool heldRepeat = !pressed && Input.GetKey(KeyCode.Q) && Time.time >= _nextHeldSpot;
-        if (!pressed && !heldRepeat)
+        bool held = SpotInputHeld();
+        if (held && !_spotKeyWasHeld)
         {
-            return;
+            _spotKeyDownTime = Time.unscaledTime;
+            _spotTapCandidate = true;
         }
 
-        _nextHeldSpot = Time.time + HoldRepeatSeconds;
-        TrySpot();
+        if (held && Time.unscaledTime - _spotKeyDownTime > TapSpotMaxSeconds)
+        {
+            _spotTapCandidate = false;
+        }
+
+        if (!held && _spotKeyWasHeld && _spotTapCandidate)
+        {
+            TryQuickSpot();
+        }
+
+        _spotKeyWasHeld = held;
     }
 
-    private bool TrySpot()
+    private bool TryQuickSpot()
     {
         var spotter = GetPlayerSoldier();
         if (spotter == null || IsDead(spotter))
@@ -57,60 +74,120 @@ public sealed class SpottingBehaviour : MonoBehaviour
             return false;
         }
 
-        try
+        if (TryGetDirectionTarget(spotter, CrosshairSpotRadius, out var crosshairTarget))
         {
-            PlayerController.TrySpotInLookDirection();
-        }
-        catch (Exception ex)
-        {
-            Plugin.LogSource?.LogDebug($"Native spot failed: {ex.Message}");
-        }
-
-        var camera = Camera.main;
-        if (camera != null && TrySpotDirection(camera.transform.position, camera.transform.forward, spotter))
-        {
+            TrySpotTarget(crosshairTarget, spotter);
+            TryNativeSpot();
             return true;
         }
 
-        return TrySpotBestVisibleTarget(spotter);
+        if (TryGetDirectionTarget(spotter, ViewSpotRadius, out var viewTarget)
+            || TryGetBestVisibleTargetInView(spotter, out viewTarget))
+        {
+            return TrySpotTarget(viewTarget, spotter);
+        }
+
+        return false;
     }
 
-    private static bool TrySpotDirection(Vector3 origin, Vector3 direction, Soldier spotter)
+    internal static bool AllowNativeSpot()
     {
+        return _allowNativeSpot;
+    }
+
+    private static bool TryGetDirectionTarget(Soldier spotter, float radius, out Spottable target)
+    {
+        target = null!;
         try
         {
-            var target = ResourcesManager.TrySpotSquadInDirection(origin, direction, spotter, SpotRadius);
-            if (target == null)
+            var camera = Camera.main;
+            if (camera == null)
             {
                 return false;
             }
 
-            return TrySpotTarget(target, spotter);
+            target = ResourcesManager.TrySpotSquadInDirection(
+                camera.transform.position,
+                camera.transform.forward,
+                spotter,
+                radius);
+
+            return target != null;
         }
         catch (Exception ex)
         {
-            Plugin.LogSource?.LogDebug($"Directional spot failed: {ex.Message}");
+            Plugin.LogSource?.LogDebug($"Direction target check failed: {ex.Message}");
             return false;
         }
     }
 
-    private static bool TrySpotBestVisibleTarget(Soldier spotter)
+    private static bool TryGetBestVisibleTargetInView(Soldier spotter, out Spottable target)
     {
+        target = null!;
         try
         {
             float distance = 0f;
-            var target = spotter.GetBestVisibleEnemy(out distance);
+            target = spotter.GetBestVisibleEnemy(out distance);
             if (target == null)
             {
                 target = spotter.GetCurrentBestVisibleEnemy();
             }
 
-            return target != null && TrySpotTarget(target, spotter);
+            return target != null && TargetIsInCameraView(target);
         }
         catch (Exception ex)
         {
-            Plugin.LogSource?.LogDebug($"Visible-target spot failed: {ex.Message}");
+            Plugin.LogSource?.LogDebug($"Visible target check failed: {ex.Message}");
             return false;
+        }
+    }
+
+    private static bool TargetIsInCameraView(Spottable target)
+    {
+        try
+        {
+            var camera = Camera.main;
+            if (camera == null)
+            {
+                return false;
+            }
+
+            var position = GetTargetSpotPosition(target);
+            var viewport = camera.WorldToViewportPoint(position);
+            if (viewport.z <= 0f || viewport.z > MaxViewSpotDistance)
+            {
+                return false;
+            }
+
+            return viewport.x >= -ViewportMargin
+                && viewport.x <= 1f + ViewportMargin
+                && viewport.y >= -ViewportMargin
+                && viewport.y <= 1f + ViewportMargin;
+        }
+        catch (Exception ex)
+        {
+            Plugin.LogSource?.LogDebug($"Viewport target check failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static Vector3 GetTargetSpotPosition(Spottable target)
+    {
+        try
+        {
+            return target.SpotPosition();
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            return target.GetCenterOfUnit();
+        }
+        catch
+        {
+            return target.GetPosition();
         }
     }
 
@@ -119,7 +196,19 @@ public sealed class SpottingBehaviour : MonoBehaviour
         bool spotted = false;
         try
         {
-            spotted = ResourcesManager.TrySpotSquad(target, spotter);
+            if (target.TryCast<Soldier>() is { } soldier)
+            {
+                spotted = soldier.TrySpot(spotter) || spotted;
+            }
+        }
+        catch (Exception ex)
+        {
+            Plugin.LogSource?.LogDebug($"Soldier spot failed: {ex.Message}");
+        }
+
+        try
+        {
+            spotted = ResourcesManager.TrySpotSquad(target, spotter) || spotted;
         }
         catch (Exception ex)
         {
@@ -136,6 +225,23 @@ public sealed class SpottingBehaviour : MonoBehaviour
         }
 
         return spotted;
+    }
+
+    private static void TryNativeSpot()
+    {
+        _allowNativeSpot = true;
+        try
+        {
+            PlayerController.TrySpotInLookDirection();
+        }
+        catch (Exception ex)
+        {
+            Plugin.LogSource?.LogDebug($"Native spot failed: {ex.Message}");
+        }
+        finally
+        {
+            _allowNativeSpot = false;
+        }
     }
 
     private static Soldier? GetPlayerSoldier()
@@ -162,4 +268,48 @@ public sealed class SpottingBehaviour : MonoBehaviour
         }
     }
 
+    private static bool SpotInputHeld()
+    {
+        return KeyHeld(binding => binding.openOrdersMenu, KeyCode.Q) || GamepadButton(GameInput.OrdersMenu);
+    }
+
+    private static bool KeyHeld(Func<KeyboardBinding, KeyCode> readBinding, KeyCode fallback)
+    {
+        try
+        {
+            var binding = GamepadsAPI.keyboardBinding;
+            if (binding != null && Input.GetKey(readBinding(binding)))
+            {
+                return true;
+            }
+        }
+        catch
+        {
+        }
+
+        return fallback != KeyCode.None && Input.GetKey(fallback);
+    }
+
+    private static bool GamepadButton(GameInput input)
+    {
+        try
+        {
+            var gamepad = GamepadsAPI.GetGamepad();
+            return gamepad != null && gamepad.GetButton(input);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+}
+
+[HarmonyPatch(typeof(PlayerController), nameof(PlayerController.TrySpotInLookDirection))]
+internal static class PlayerControllerTrySpotInLookDirectionPatch
+{
+    private static bool Prefix()
+    {
+        return SpottingBehaviour.AllowNativeSpot();
+    }
 }

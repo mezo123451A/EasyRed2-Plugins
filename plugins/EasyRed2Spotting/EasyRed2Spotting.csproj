@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Reference Include="0Harmony" HintPath="$(EasyRed2GameDir)\BepInEx\core\0Harmony.dll" Private="false" />
     <Reference Include="BepInEx.Core" HintPath="$(EasyRed2GameDir)\BepInEx\core\BepInEx.Core.dll" Private="false" />
     <Reference Include="BepInEx.Unity.IL2CPP" HintPath="$(EasyRed2GameDir)\BepInEx\core\BepInEx.Unity.IL2CPP.dll" Private="false" />
     <Reference Include="Il2CppInterop.Runtime" HintPath="$(EasyRed2GameDir)\BepInEx\core\Il2CppInterop.Runtime.dll" Private="false" />
